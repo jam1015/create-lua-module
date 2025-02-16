@@ -24,13 +24,14 @@ local function get_module_from_treesitter()
   cursor_row = cursor_row - 1  -- Treesitter uses 0-indexed rows
 
   -- Define a Treesitter query to capture the string argument of a require call.
-  -- Note: The Lua grammar provided by nvim-treesitter uses "function_call" with a "prefix" field.
+  -- This query matches a call_expression whose first child is an identifier (which should be "require")
+  -- and whose second child is an arguments node containing a string.
   local query = vim.treesitter.query.parse(
     "lua",
     [[
-    (function_call
-      prefix: (identifier) @func (#eq? @func "require")
-      arguments: (arguments (string) @module))
+      ((call_expression
+        (identifier) @func (#eq? @func "require")
+        (arguments (string) @module)))
     ]]
   )
 
@@ -40,7 +41,7 @@ local function get_module_from_treesitter()
       local start_row, _, end_row, _ = node:range()
       if cursor_row >= start_row and cursor_row <= end_row then
         local module_text = vim.treesitter.get_node_text(node, bufnr)
-        -- Remove the surrounding quotes.
+        -- Remove surrounding quotes.
         module_text = module_text:gsub('^["\']', ""):gsub('["\']$', "")
         return module_text
       end

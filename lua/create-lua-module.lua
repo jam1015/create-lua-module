@@ -1,10 +1,58 @@
 -- File: lua/create_lua_module/init.lua
 local M = {}
 
+-- Attempt to get the module name from a require call using Treesitter.
+local function get_module_from_treesitter()
+  local ok, ts_utils = pcall(require, "nvim-treesitter.ts_utils")
+  if not ok then
+    return nil
+  end
+
+  local bufnr = vim.api.nvim_get_current_buf()
+  local parser = vim.treesitter.get_parser(bufnr, "lua")
+  if not parser then
+    return nil
+  end
+
+  local tree = parser:parse()[1]
+  if not tree then
+    return nil
+  end
+
+  local root = tree:root()
+  local cursor_row, cursor_col = unpack(vim.api.nvim_win_get_cursor(0))
+  cursor_row = cursor_row - 1  -- Treesitter uses 0-indexed rows
+
+  -- Define a Treesitter query to capture the string argument of a require call.
+  local query = vim.treesitter.query.parse(
+    "lua",
+    [[
+    (call_expression
+      function: (identifier) @func (#eq? @func "require")
+      arguments: (arguments (string) @module))
+    ]]
+  )
+
+  for id, node, _ in query:iter_captures(root, bufnr, 0, -1) do
+    local name = query.captures[id]
+    if name == "module" then
+      local start_row, _, end_row, _ = node:range()
+      if cursor_row >= start_row and cursor_row <= end_row then
+        local module_text = vim.treesitter.get_node_text(node, bufnr)
+        -- Remove the surrounding quotes.
+        module_text = module_text:gsub('^["\']', ""):gsub('["\']$', "")
+        return module_text
+      end
+    end
+  end
+
+  return nil
+end
+
 function M.create_module()
-  -- Get the module name under the cursor.
-  local module_name = vim.fn.expand("<cWORD>")
-  if module_name == nil or module_name == "" then
+  -- Try to get the module name using Treesitter first.
+  local module_name = get_module_from_treesitter()
+  if not module_name or module_name == "" then
     module_name = vim.fn.input("Module name (dot-separated): ")
   end
   if module_name == "" then
@@ -14,13 +62,13 @@ function M.create_module()
 
   -- Convert the dot-separated module name to a file path.
   local file_path = module_name:gsub("%.", "/")
-  -- Append .lua extension if not present.
   if not file_path:match("%.lua$") then
     file_path = file_path .. ".lua"
   end
 
-  -- Determine the base directory.
-  -- Try to locate a 'lua' directory relative to the file being edited.
+  -- Determine the base directory:
+  -- If editing a file inside a project with a 'lua' folder,
+  -- create the module relative to that folder. Otherwise, use the cwd.
   local current_file = vim.fn.expand("%:p")
   local base = nil
   local lua_dir = vim.fn.finddir("lua", vim.fn.expand("%:p:h") .. ";")
@@ -32,7 +80,6 @@ function M.create_module()
 
   local full_path = base .. "/" .. file_path
 
-  -- Check if the file already exists.
   if vim.fn.filereadable(full_path) == 1 then
     print("File already exists: " .. full_path)
     return
@@ -60,6 +107,5 @@ end
 vim.api.nvim_create_user_command("CreateLuaModule", function()
   M.create_module()
 end, {})
-
 
 return M

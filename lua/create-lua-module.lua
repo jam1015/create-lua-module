@@ -24,11 +24,12 @@ local function get_module_from_treesitter()
   cursor_row = cursor_row - 1  -- Treesitter uses 0-indexed rows
 
   -- Define a Treesitter query to capture the string argument of a require call.
+  -- Note: The Lua grammar provided by nvim-treesitter uses "function_call" with a "prefix" field.
   local query = vim.treesitter.query.parse(
     "lua",
     [[
-    (call_expression
-      function: (identifier) @func (#eq? @func "require")
+    (function_call
+      prefix: (identifier) @func (#eq? @func "require")
       arguments: (arguments (string) @module))
     ]]
   )

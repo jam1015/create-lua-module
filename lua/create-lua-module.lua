@@ -1,59 +1,22 @@
 -- File: lua/create_lua_module/init.lua
 local M = {}
 
--- Attempt to get the module name from a require call using Treesitter.
-local function get_module_from_treesitter()
-  local ok, ts_utils = pcall(require, "nvim-treesitter.ts_utils")
-  if not ok then
-    return nil
-  end
-
-  local bufnr = vim.api.nvim_get_current_buf()
-  local parser = vim.treesitter.get_parser(bufnr, "lua")
-  if not parser then
-    return nil
-  end
-
-  local tree = parser:parse()[1]
-  if not tree then
-    return nil
-  end
-
-  local root = tree:root()
-  local cursor_row, cursor_col = unpack(vim.api.nvim_win_get_cursor(0))
-  cursor_row = cursor_row - 1  -- Treesitter uses 0-indexed rows
-
-  -- Define a Treesitter query to capture the string argument of a require call.
-  -- This query matches a call_expression whose first child is an identifier (which should be "require")
-  -- and whose second child is an arguments node containing a string.
-  local query = vim.treesitter.query.parse(
-    "lua",
-    [[
-      ((call_expression
-        (identifier) @func (#eq? @func "require")
-        (arguments (string) @module)))
-    ]]
-  )
-
-  for id, node, _ in query:iter_captures(root, bufnr, 0, -1) do
-    local name = query.captures[id]
-    if name == "module" then
-      local start_row, _, end_row, _ = node:range()
-      if cursor_row >= start_row and cursor_row <= end_row then
-        local module_text = vim.treesitter.get_node_text(node, bufnr)
-        -- Remove surrounding quotes.
-        module_text = module_text:gsub('^["\']', ""):gsub('["\']$', "")
-        return module_text
-      end
+-- Utility function: Get the quoted string under the cursor.
+local function get_quoted_string_at_cursor()
+  local line = vim.api.nvim_get_current_line()
+  local cursor_col = vim.api.nvim_win_get_cursor(0)[2] + 1
+  -- Look for quoted strings in the line using a simple regex.
+  for s, quote, content, e in line:gmatch("()([\"'])(.-)%2()") do
+    if cursor_col >= s and cursor_col <= e then
+      return content
     end
   end
-
   return nil
 end
 
 function M.create_module()
-  -- Try to get the module name using Treesitter first.
-  local module_name = get_module_from_treesitter()
+  -- Try to get the module name from a quoted string under the cursor.
+  local module_name = get_quoted_string_at_cursor()
   if not module_name or module_name == "" then
     module_name = vim.fn.input("Module name (dot-separated): ")
   end

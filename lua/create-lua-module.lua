@@ -5,7 +5,6 @@ local M = {}
 local function get_quoted_string_at_cursor()
   local line = vim.api.nvim_get_current_line()
   local cursor_col = vim.api.nvim_win_get_cursor(0)[2] + 1
-  -- Look for quoted strings in the line using a simple regex.
   for s, quote, content, e in line:gmatch("()([\"'])(.-)%2()") do
     if cursor_col >= s and cursor_col <= e then
       return content
@@ -14,8 +13,13 @@ local function get_quoted_string_at_cursor()
   return nil
 end
 
-function M.create_module()
-  -- Try to get the module name from a quoted string under the cursor.
+function M.create_module(cmd_arg)
+  local init_mode = false
+  if cmd_arg == "init" then
+    init_mode = true
+  end
+
+  -- Get the module name from the quoted string under the cursor or prompt for one.
   local module_name = get_quoted_string_at_cursor()
   if not module_name or module_name == "" then
     module_name = vim.fn.input("Module name (dot-separated): ")
@@ -25,15 +29,22 @@ function M.create_module()
     return
   end
 
-  -- Convert the dot-separated module name to a file path.
-  local file_path = module_name:gsub("%.", "/")
-  if not file_path:match("%.lua$") then
-    file_path = file_path .. ".lua"
+  local file_path
+  if init_mode then
+    -- If "init" mode, remove any trailing .lua from the module name, convert dots to slashes,
+    -- and later append /init.lua.
+    module_name = module_name:gsub("%.lua$", "")
+    file_path = module_name:gsub("%.", "/")
+  else
+    file_path = module_name:gsub("%.", "/")
+    if not file_path:match("%.lua$") then
+      file_path = file_path .. ".lua"
+    end
   end
 
-  -- Determine the base directory:
-  -- If editing a file inside a project with a 'lua' folder,
-  -- create the module relative to that folder. Otherwise, use the cwd.
+  -- Determine the base directory.
+  -- If editing a file within a project that has a 'lua' folder, use that folder.
+  -- Otherwise, default to the current working directory.
   local current_file = vim.fn.expand("%:p")
   local base = nil
   local lua_dir = vim.fn.finddir("lua", vim.fn.expand("%:p:h") .. ";")
@@ -43,34 +54,44 @@ function M.create_module()
     base = vim.fn.getcwd()
   end
 
-  local full_path = base .. "/" .. file_path
+  local full_path
+  if init_mode then
+    full_path = base .. "/" .. file_path .. "/init.lua"
+  else
+    full_path = base .. "/" .. file_path
+  end
 
   if vim.fn.filereadable(full_path) == 1 then
     print("File already exists: " .. full_path)
     return
   end
 
-  -- Create any missing directories.
+  -- Create any missing directories for the file's parent directory.
   local dir = vim.fn.fnamemodify(full_path, ":h")
   vim.fn.mkdir(dir, "p")
 
-  -- Create and open the new file with a basic Lua module boilerplate.
-  local fd, err = io.open(full_path, "w")
-  if not fd then
-    print("Failed to create file: " .. err)
-    return
-  end
+  -- Create a new empty buffer with the target file name.
+  -- (The file won't actually be written until the user saves it.)
+  vim.cmd("enew")
+  vim.api.nvim_buf_set_name(0, full_path)
 
-  fd:write("-- " .. module_name .. "\n\nlocal M = {}\n\n\nreturn M\n")
-  fd:close()
+  -- Insert basic Lua module boilerplate into the new buffer.
+  local boilerplate = {
+    "-- " .. module_name,
+    "",
+    "local M = {}",
+    "",
+    "return M",
+    "",
+  }
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, boilerplate)
 
-  print("Module created: " .. full_path)
-  vim.cmd("edit " .. full_path)
+  print("Module buffer created: " .. full_path)
 end
 
--- Create a Neovim command to invoke the module creation.
-vim.api.nvim_create_user_command("CreateLuaModule", function()
-  M.create_module()
-end, {})
+-- Create a Neovim command that accepts an optional argument.
+vim.api.nvim_create_user_command("CreateLuaModule", function(opts)
+  M.create_module(opts.args)
+end, { nargs = "?" })
 
 return M

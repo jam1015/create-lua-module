@@ -7,13 +7,25 @@ function M.create_module(opts)
     as_init = true
   end
 
-  -- Get the module name under the cursor.
-  local module_name = vim.fn.expand("<cWORD>")
-  if module_name == nil or module_name == "" then
-    module_name = vim.fn.input("Module name (dot-separated): ")
+  -- Get the current line and the cursor column.
+  local line = vim.fn.getline(".")
+  local col = vim.fn.col(".")
+
+  -- Look for a quoted string that contains the cursor position.
+  local module_name = nil
+  local pos = 1
+  while true do
+    local start_pos, end_pos, quote, content = line:find('(["\'])(.-)%1', pos)
+    if not start_pos then break end
+    if col >= start_pos and col <= end_pos then
+      module_name = content
+      break
+    end
+    pos = end_pos + 1
   end
-  if module_name == "" then
-    print("No module name provided.")
+
+  if not module_name or module_name == "" then
+    print("Cursor is not inside a quoted string. Aborting module creation.")
     return
   end
 
@@ -21,17 +33,14 @@ function M.create_module(opts)
   local file_path = module_name:gsub("%.", "/")
 
   if as_init then
-    -- If 'init' option is used, create the module as a directory with an init.lua file.
     file_path = file_path .. "/init.lua"
   else
-    -- Append .lua extension if not already present.
     if not file_path:match("%.lua$") then
       file_path = file_path .. ".lua"
     end
   end
 
   -- Determine the base directory.
-  -- Try to locate a 'lua' directory relative to the file being edited.
   local base = nil
   local lua_dir = vim.fn.finddir("lua", vim.fn.expand("%:p:h") .. ";")
   if lua_dir and lua_dir ~= "" then
@@ -65,7 +74,7 @@ function M.create_module(opts)
   print("Module created: " .. full_path)
   vim.cmd("edit " .. full_path)
 
-  -- After editing, if the current file has a .lua extension, set the filetype to lua.
+  -- Set filetype to lua if applicable.
   if vim.fn.expand("%:e") == "lua" then
     vim.cmd("set filetype=lua")
   end
